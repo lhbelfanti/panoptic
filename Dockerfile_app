@@ -1,0 +1,51 @@
+# Build Stage
+FROM golang:1.25-alpine AS builder
+
+# Maintainer
+LABEL maintainer="Lucas Belfanti"
+
+# Install necessary dependencies
+RUN apk update && apk add --no-cache  \
+    curl  \
+    tzdata \
+    && rm -rf /var/cache/apk/*
+
+# Set timezone
+ENV TZ=America/Argentina/Buenos_Aires
+
+# Create the application directory and set it as the working directory
+WORKDIR /app
+
+# Optimize caching by copying go.mod and go.sum first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the application source code and the migrations folder
+COPY cmd/ ./cmd
+COPY internal/ ./internal
+COPY migrations/ ./migrations
+
+# Build the application and output the binary as 'build' inside ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o build ./cmd/api
+
+# Run stage
+FROM alpine:latest AS runner
+
+# Install necessary dependencies
+RUN apk update && apk add --no-cache  \
+    curl  \
+    tzdata \
+    && rm -rf /var/cache/apk/*
+
+# Set timezone
+ENV TZ=America/Argentina/Buenos_Aires
+
+# Create the application directory and set it as the working directory
+WORKDIR /app
+
+# Copy the built image from builder stage
+COPY --from=builder /app/build /app/build
+
+EXPOSE ${APP_PORT}
+
+CMD ["/app/build", "--prod"]

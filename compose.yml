@@ -1,0 +1,81 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile_app
+    container_name: app
+    command: ["/main", "--prod"]
+    ports:
+      - "${APP_EXPOSED_PORT}:${APP_INTERNAL_PORT}"
+    environment:
+      API_PORT: ${APP_INTERNAL_PORT:-4001}
+      POSTGRES_DB_NAME: ${DB_NAME}
+      POSTGRES_DB_USER: ${DB_USER}
+      POSTGRES_DB_PASS: ${DB_PASS}
+      POSTGRES_DB_PORT: ${DB_PORT}
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    networks:
+      - app_network
+      - shared_network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'wget -q --spider http://localhost:${APP_INTERNAL_PORT}/ping/v1 || exit 1'"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+db_migrations:
+    image: alpine:latest
+    build:
+      context: .
+      dockerfile: Dockerfile_migrations
+    container_name: db_migrations
+    environment:
+      API_PORT: ${APP_INTERNAL_PORT:-4001}
+    env_file:
+      - .env
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: "no"
+
+  postgres_db:
+    image: postgres:16
+    container_name: postgres_db
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      TZ: "America/Argentina/Buenos_Aires"
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U \"$DB_USER\" -d \"$DB_NAME\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+networks:
+  app_network:
+    driver: bridge
+    name: app_network
+  shared_network:
+    driver: bridge
+    name: shared_network
